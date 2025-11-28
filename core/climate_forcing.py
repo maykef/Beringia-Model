@@ -3,7 +3,7 @@ Climate forcing module: NGRIP ice core data integration.
 
 Handles:
 - Loading NGRIP Ca²⁺ time series
-- Computing climate irregularity parameter η = CV(Ca²⁺) / baseline
+- Reading pre-computed climate irregularity parameter η from CSV
 - Defining standard paleoclimate periods
 - Generating stochastic resource pulses (Poisson process)
 
@@ -61,14 +61,11 @@ class NGRIPData:
     """
     NGRIP ice core data handler.
 
-    Loads and processes Ca²⁺ concentration data to extract
+    Loads and processes Ca²⁺ concentration data with pre-computed
     climate irregularity parameter η for different periods.
 
-    The η parameter is computed as:
-        η = CV(Ca²⁺) / CV_baseline
-
-    where CV = standard deviation / mean, and CV_baseline represents
-    the long-term average variability.
+    IMPORTANT: η values must be pre-computed in the CSV file.
+    This class does NOT compute η on-the-fly.
     """
 
     # Standard Late Pleistocene periods (ka BP)
@@ -87,8 +84,8 @@ class NGRIPData:
         Expected columns:
             - Age_ka: Age in thousands of years before present
             - Ca_ppb: Calcium concentration [ppb]
-            - CV_Ca: Coefficient of variation (computed)
-            - eta: Climate irregularity parameter (computed)
+            - CV_Ca: Coefficient of variation (pre-computed)
+            - eta: Climate irregularity parameter (pre-computed)
 
         Args:
             csv_path: Path to NGRIP CSV file. If None, expects data
@@ -146,10 +143,13 @@ class NGRIPData:
         if (self.df['Age_ka'] < 0).any():
             raise ValueError("Negative ages found in dataset")
 
-        # Compute η if not present
+        # Require η column to be present in CSV - DO NOT compute on-the-fly
         if 'eta' not in self.df.columns:
-            print("  Computing η from Ca²⁺ data...")
-            self._compute_eta()
+            raise ValueError(
+                "η column not found in CSV. "
+                "Pre-computed η values must be provided in the data file. "
+                "Use the separate η computation script to generate these values."
+            )
 
         # Drop rows with NaN η values
         n_before = len(self.df)
@@ -163,29 +163,6 @@ class NGRIPData:
             raise ValueError("Non-positive η values found")
 
         print(f"  η range: [{self.df['eta'].min():.3f}, {self.df['eta'].max():.3f}]")
-
-    def _compute_eta(self, window_size: int = 50, baseline_cv: float = 0.3) -> None:
-        """
-        Compute climate irregularity parameter η from Ca²⁺ data.
-
-        Uses rolling window to compute local CV, then normalizes
-        by baseline CV to get dimensionless η.
-
-        Args:
-            window_size: Number of points for rolling window
-            baseline_cv: Baseline CV for normalization (default 0.3)
-        """
-        # Compute rolling mean and std
-        ca = self.df['Ca_ppb']
-        rolling_mean = ca.rolling(window=window_size, center=True).mean()
-        rolling_std = ca.rolling(window=window_size, center=True).std()
-
-        # Compute local CV
-        cv_local = rolling_std / rolling_mean
-
-        # Normalize to get η
-        self.df['CV_Ca'] = cv_local
-        self.df['eta'] = cv_local / baseline_cv
 
     def get_period_eta(self, period_name: str) -> ClimatePeriod:
         """
